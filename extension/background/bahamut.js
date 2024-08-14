@@ -4,7 +4,6 @@
   const redirector = (url) => {
     const newUrl = new URL(url);
     newUrl.searchParams.delete('limit');
-    console.log('newUrl=' + newUrl);
     return newUrl.href;
   };
 
