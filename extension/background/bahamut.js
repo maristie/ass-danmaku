@@ -3,7 +3,7 @@
   const getPageTitle = async tabId => (await browser.tabs.get(tabId)).title.replace(/ - \S*$/, '');
 
   window.onRequest([
-    'https://ani.gamer.com.tw/ajax/danmuGet.php',
+    'https://api.gamer.com.tw/anime/v1/danmu.php',
   ], async function (response, pageContext, { url, requestBody }) {
     const { sn } = requestBody.formData;
     const { danmaku } = window.danmaku.parser.bahamut(response);
