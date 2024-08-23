@@ -2,7 +2,7 @@
 
   const getPageTitle = async tabId => (await browser.tabs.get(tabId)).title;
   window.onRequest([
-    '*://nvcomment.nicovideo.jp/v1/threads',
+    '*://public.nvcomment.nicovideo.jp/v1/threads',
   ], async function (response, pageContext, { url }) {
     const { thread, danmaku } = window.danmaku.parser.niconico(response);
     if (danmaku.length === 0) return;
