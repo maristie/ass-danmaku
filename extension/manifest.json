@@ -15,7 +15,11 @@
     "tabs",
     "downloads",
     "storage",
-    "<all_urls>"
+    "*://*.acfun.cn/*",
+    "*://*.aixifan.com/*",
+    "*://*.bilibili.com/*",
+    "*://*.gamer.com.tw/*",
+    "*://*.nicovideo.jp/*"
   ],
 
   "background": {
