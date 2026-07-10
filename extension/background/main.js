@@ -140,7 +140,18 @@
     const [options] = await Promise.all([
       window.options.get(),
     ]);
-    danmaku.layout = await window.danmaku.layout(danmaku.content, options);
+    const filterEmoji = options.filterEmoji !== false;
+    let contentList = danmaku.content;
+    if (filterEmoji) {
+      contentList = contentList.reduce((list, d) => {
+        const text = window.danmaku.parser.removeEmoji(d.text);
+        if (text) {
+          list.push(Object.assign({}, d, { text }));
+        }
+        return list;
+      }, []);
+    }
+    danmaku.layout = await window.danmaku.layout(contentList, options);
     const content = window.danmaku.ass(danmaku, options);
     const blob = window.download.blob(content);
     const url = URL.createObjectURL(blob);

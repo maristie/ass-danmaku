@@ -49,12 +49,14 @@ window.options = (function () {
     { name: 'maxDelay', type: 'number', min: 0, predef: 6, step: 0.1 },
     { name: 'textOpacity', type: 'number', min: 10, max: 100, predef: 60 },
     { name: 'maxOverlap', type: 'number', min: 1, max: 20, predef: 1 },
+    { name: 'filterEmoji', type: 'boolean', predef: true },
   ];
 
   const attrNormalize = (option, { name, type, min = -Infinity, max = Infinity, step = 1, predef, valid }) => {
     let value = option;
     if (type === 'number') value = +value;
     else if (type === 'string') value = '' + value;
+    else if (type === 'boolean') value = !!value;
     if (valid && !valid(value)) value = predef;
     if (type === 'number') {
       if (Number.isNaN(value)) value = predef;
@@ -125,16 +127,18 @@ window.options = (function () {
 
       const attr = attributes.find(({ name: attr }) => attr === name);
       element.addEventListener('input', event => {
-        const option = element.value;
+        const option = element.type === 'checkbox' ? element.checked : element.value;
         const normalized = attrNormalize(option, attr);
         proxied[name] = normalized;
         set(proxied);
         outputs.forEach(output => { output.value = normalized; });
       });
       element.addEventListener('blur', event => {
-        element.value = proxied[name];
+        if (element.type === 'checkbox') element.checked = proxied[name];
+        else element.value = proxied[name];
       });
-      element.value = proxied[name];
+      if (element.type === 'checkbox') element.checked = proxied[name];
+      else element.value = proxied[name];
       outputs.forEach(output => { output.value = proxied[name]; });
     });
     return proxied;

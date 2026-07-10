@@ -23,6 +23,7 @@
       text.replace(/\p{Emoji_Presentation}/gu, '')
         .replace(/\p{Emoji}\uFE0F/gu, '')
     );
+    parser.removeEmoji = removeEmoji;
 
     /**
      * @param {Danmaku} danmaku
@@ -30,8 +31,6 @@
      */
     const danmakuFilter = danmaku => {
       if (!danmaku) return false;
-      if (!danmaku.text) return false;
-      danmaku.text = removeEmoji(danmaku.text);
       if (!danmaku.text) return false;
       if (!danmaku.mode) return false;
       if (!danmaku.size) return false;
