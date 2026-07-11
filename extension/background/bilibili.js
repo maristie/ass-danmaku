@@ -35,13 +35,13 @@
   });
 
   /**
-   * @param {{ total: number, received: number }[]} pendingList
+   * @param {{ total: number, receivedSegments: Set<string>, content: Object[] }[]} pendingList
    */
   const checkFinish = function (pendingList) {
     const finished = [];
     for (let i = 0; i < pendingList.length;) {
       const item = pendingList[i];
-      if (item.total === item.received) {
+      if (item.total === item.receivedSegments.size && item.content.length > 0) {
         finished.push(...pendingList.splice(i, 1));
       } else {
         i++;
@@ -51,9 +51,10 @@
   };
 
   window.onRequest(['https://api.bilibili.com/x/v2/dm/wbi/web/seg.so?*'], async function (response, pageContext, { url }) {
-    const cid = new URL(url).searchParams.get('oid');
+    const params = new URL(url).searchParams;
+    const cid = params.get('oid');
+    const segmentIndex = params.get('segment_index');
     const { danmaku } = window.danmaku.parser.bilibili(response);
-    if (danmaku.length === 0) return;
     const { tabId } = pageContext;
     const cidTitle = pageContext.metaInfo.cidTitle;
     const title = await (cidTitle && cidTitle.get(cid) || getPageTitle(tabId));
@@ -61,20 +62,35 @@
     const pendingList = pageContext.pendingList = pageContext.pendingList || [];
     const danmakuList = pageContext.danmakuList = pageContext.danmakuList || [];
     const id = `bilibili-pb-${cid}`;
-    let danmakuItem = pendingList.find(item => item.id === id);
+    let danmakuItem = pendingList.find(item => item.id === id) || danmakuList.find(item => item.id === id);
     if (!danmakuItem) {
-      danmakuItem = { id };
+      danmakuItem = {
+        id,
+        meta: { name, url: [] },
+        content: [],
+        danmakuIds: new Set(),
+        receivedSegments: new Set(),
+      };
       pendingList.push(danmakuItem);
     }
-    if (!danmakuItem.meta) {
-      danmakuItem.meta = { name, url: [url] };
-      danmakuItem.received = 1;
-      danmakuItem.content = danmaku;
-    } else {
-      danmakuItem.meta.url.push(url);
-      danmakuItem.received++;
-      danmakuItem.content.push(...danmaku);
+    danmakuItem.meta = danmakuItem.meta || { name, url: [] };
+    danmakuItem.meta.url = danmakuItem.meta.url || [];
+    if (!danmakuItem.meta.url.includes(url)) danmakuItem.meta.url.push(url);
+    if (!danmakuItem.danmakuIds) {
+      const ids = danmakuItem.content.map(item => item.danmakuId).filter(danmakuId => danmakuId);
+      danmakuItem.danmakuIds = new Set(ids);
     }
+    danmakuItem.receivedSegments = danmakuItem.receivedSegments || new Set();
+    danmakuItem.content.push(...danmaku.filter(item => {
+      if (!item.danmakuId) return true;
+      if (danmakuItem.danmakuIds.has(item.danmakuId)) return false;
+      danmakuItem.danmakuIds.add(item.danmakuId);
+      return true;
+    }));
+    // pull_mode responses cover a playback time range and overlap the full
+    // segments loaded by the expanded danmaku list. Merge their comments,
+    // but only full segment responses count toward collection completion.
+    if (segmentIndex && params.get('pull_mode') !== '1') danmakuItem.receivedSegments.add(segmentIndex);
     danmakuList.push(...checkFinish(pendingList));
   });
 
@@ -133,9 +149,15 @@
     const pendingList = pageContext.pendingList = pageContext.pendingList || [];
     const danmakuList = pageContext.danmakuList = pageContext.danmakuList || [];
     const id = `bilibili-pb-${cid}`;
-    let danmakuItem = pendingList.find(item => item.id === id);
+    let danmakuItem = pendingList.find(item => item.id === id) || danmakuList.find(item => item.id === id);
     if (!danmakuItem) {
-      danmakuItem = { id, total: dmSegTotal };
+      danmakuItem = {
+        id,
+        total: dmSegTotal,
+        content: [],
+        danmakuIds: new Set(),
+        receivedSegments: new Set(),
+      };
       pendingList.push(danmakuItem);
     } else {
       danmakuItem.total = dmSegTotal;

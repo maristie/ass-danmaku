@@ -15,6 +15,7 @@
      * @property {number} size
      * @property {DanmakuColor} color
      * @property {boolean} bottom
+     * @property {string} [danmakuId]
      */
 
     const parser = {};
@@ -194,7 +195,7 @@
       const pbf = new Pbf(new Uint8Array(content));
       const data = types.DmSegMobileReply.read(pbf);
       const danmaku = data.elems.map(item => {
-        const { progress, mode, fontsize, color, content, pool } = item;
+        const { progress, mode, fontsize, color, content, pool, idStr } = item;
         return {
           text: content,
           time: progress / 1000,
@@ -202,6 +203,9 @@
           size: fontsize,
           color: parseRgb256IntegerColor(color),
           bottom: pool > 0,
+          // Keep the server-side ID so overlapping segment responses can be
+          // merged without dropping distinct comments with the same text.
+          danmakuId: idStr,
         };
       }).filter(danmakuFilter);
       return { danmaku };
