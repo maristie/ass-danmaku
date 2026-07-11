@@ -2,18 +2,101 @@
 
   const getPageTitle = async tabId => (await browser.tabs.get(tabId)).title;
 
+  const longestCoveredRange = function (ranges) {
+    const sorted = ranges.slice().sort(([x], [y]) => x - y);
+    let longest = 0;
+    let start = null;
+    let end = null;
+    sorted.forEach(([rangeStart, rangeEnd]) => {
+      if (end === null || rangeStart > end) {
+        start = rangeStart;
+        end = rangeEnd;
+      } else {
+        end = Math.max(end, rangeEnd);
+      }
+      longest = Math.max(longest, end - start);
+    });
+    return longest;
+  };
+
+  const updateCoveredSegments = function (item) {
+    if (!item.pageSize || !item.segmentCoverage) return;
+    item.segmentCoverage.forEach((ranges, segmentIndex) => {
+      let required = item.pageSize;
+      if (+segmentIndex === item.total && item.durationMs) {
+        const remaining = item.durationMs - (item.total - 1) * item.pageSize;
+        if (remaining > 0) required = Math.min(required, remaining);
+      }
+      if (longestCoveredRange(ranges) >= required) item.receivedSegments.add(segmentIndex);
+    });
+  };
+
+  const isComplete = function (item) {
+    if (!(item.total > 0) || item.content.length === 0) return false;
+    for (let segmentIndex = 1; segmentIndex <= item.total; segmentIndex++) {
+      if (!item.receivedSegments.has(`${segmentIndex}`)) return false;
+    }
+    return true;
+  };
+
+  /**
+   * @param {{ total: number, receivedSegments: Set<string>, content: Object[] }[]} pendingList
+   */
+  const checkFinish = function (pendingList) {
+    const finished = [];
+    for (let i = 0; i < pendingList.length;) {
+      const item = pendingList[i];
+      if (isComplete(item)) {
+        finished.push(...pendingList.splice(i, 1));
+      } else {
+        i++;
+      }
+    }
+    return finished;
+  };
+
+  const updateDurations = function (pageContext, pages) {
+    const cidDuration = pageContext.metaInfo.cidDuration = pageContext.metaInfo.cidDuration || new Map();
+    pages.forEach(({ cid, duration }) => {
+      if (duration > 0) cidDuration.set(`${cid}`, duration * 1000);
+    });
+    const pendingList = pageContext.pendingList = pageContext.pendingList || [];
+    pendingList.forEach(item => {
+      item.durationMs = cidDuration.get(item.cid) || item.durationMs;
+      updateCoveredSegments(item);
+    });
+    const danmakuList = pageContext.danmakuList = pageContext.danmakuList || [];
+    danmakuList.push(...checkFinish(pendingList));
+  };
+
   window.onRequest(['https://api.bilibili.com/x/player/pagelist?*'], function (response, pageContext) {
     const { data } = JSON.parse(new TextDecoder('utf-8').decode(response));
     const { tabId } = pageContext;
     const cidTitle = pageContext.metaInfo.cidTitle = pageContext.metaInfo.cidTitle || new Map();
     data.forEach(({ cid, part }) => {
-      cidTitle.set(cid, (async () => {
+      const cidKey = `${cid}`;
+      cidTitle.set(cidKey, (async () => {
         const title = await getPageTitle(tabId);
         const aidTitle = title.replace(/_.*$/, '');
         const partTitle = part ? ' - ' + part : '';
         return aidTitle + partTitle;
       })());
     });
+    updateDurations(pageContext, data);
+  });
+
+  window.onRequest([
+    'https://api.bilibili.com/x/web-interface/view?*',
+    'https://api.bilibili.com/x/web-interface/wbi/view?*',
+  ], function (response, pageContext) {
+    const { data } = JSON.parse(new TextDecoder('utf-8').decode(response));
+    if (!data || !Array.isArray(data.pages)) return;
+    const cidTitle = pageContext.metaInfo.cidTitle = pageContext.metaInfo.cidTitle || new Map();
+    data.pages.forEach(({ cid, part }) => {
+      const partTitle = data.pages.length > 1 && part ? ' - ' + part : '';
+      cidTitle.set(`${cid}`, Promise.resolve(data.title + partTitle));
+    });
+    updateDurations(pageContext, data.pages);
   });
 
   window.onRequest([
@@ -24,7 +107,7 @@
     if (danmaku.length === 0) return;
     const { tabId } = pageContext;
     const cidTitle = pageContext.metaInfo.cidTitle;
-    const title = await (cidTitle && cidTitle.get(cid) || getPageTitle(tabId));
+    const title = await (cidTitle && cidTitle.get(`${cid}`) || getPageTitle(tabId));
     const name = 'B' + cid + (title ? ' - ' + title : '');
     const danmakuList = pageContext.danmakuList = pageContext.danmakuList || [];
     danmakuList.push({
@@ -34,30 +117,17 @@
     });
   });
 
-  /**
-   * @param {{ total: number, receivedSegments: Set<string>, content: Object[] }[]} pendingList
-   */
-  const checkFinish = function (pendingList) {
-    const finished = [];
-    for (let i = 0; i < pendingList.length;) {
-      const item = pendingList[i];
-      if (item.total === item.receivedSegments.size && item.content.length > 0) {
-        finished.push(...pendingList.splice(i, 1));
-      } else {
-        i++;
-      }
-    }
-    return finished;
-  };
-
-  window.onRequest(['https://api.bilibili.com/x/v2/dm/wbi/web/seg.so?*'], async function (response, pageContext, { url }) {
+  window.onRequest([
+    'https://api.bilibili.com/x/v2/dm/web/seg.so?*',
+    'https://api.bilibili.com/x/v2/dm/wbi/web/seg.so?*',
+  ], async function (response, pageContext, { url }) {
     const params = new URL(url).searchParams;
     const cid = params.get('oid');
     const segmentIndex = params.get('segment_index');
     const { danmaku } = window.danmaku.parser.bilibili(response);
     const { tabId } = pageContext;
     const cidTitle = pageContext.metaInfo.cidTitle;
-    const title = await (cidTitle && cidTitle.get(cid) || getPageTitle(tabId));
+    const title = await (cidTitle && cidTitle.get(`${cid}`) || getPageTitle(tabId));
     const name = 'B' + cid + (title ? ' - ' + title : '');
     const pendingList = pageContext.pendingList = pageContext.pendingList || [];
     const danmakuList = pageContext.danmakuList = pageContext.danmakuList || [];
@@ -66,10 +136,12 @@
     if (!danmakuItem) {
       danmakuItem = {
         id,
+        cid,
         meta: { name, url: [] },
         content: [],
         danmakuIds: new Set(),
         receivedSegments: new Set(),
+        segmentCoverage: new Map(),
       };
       pendingList.push(danmakuItem);
     }
@@ -81,16 +153,29 @@
       danmakuItem.danmakuIds = new Set(ids);
     }
     danmakuItem.receivedSegments = danmakuItem.receivedSegments || new Set();
+    danmakuItem.segmentCoverage = danmakuItem.segmentCoverage || new Map();
+    const cidDuration = pageContext.metaInfo.cidDuration;
+    danmakuItem.durationMs = cidDuration && cidDuration.get(cid) || danmakuItem.durationMs;
     danmakuItem.content.push(...danmaku.filter(item => {
       if (!item.danmakuId) return true;
       if (danmakuItem.danmakuIds.has(item.danmakuId)) return false;
       danmakuItem.danmakuIds.add(item.danmakuId);
       return true;
     }));
-    // pull_mode responses cover a playback time range and overlap the full
-    // segments loaded by the expanded danmaku list. Merge their comments,
-    // but only full segment responses count toward collection completion.
-    if (segmentIndex && params.get('pull_mode') !== '1') danmakuItem.receivedSegments.add(segmentIndex);
+    if (segmentIndex && params.get('pull_mode') === '1') {
+      // The current player splits segment 1 into 0-2 and 2-6 minute ranges.
+      // Treat it as received only after those ranges cover the segment.
+      const start = +params.get('ps');
+      const end = +params.get('pe');
+      if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+        const ranges = danmakuItem.segmentCoverage.get(segmentIndex) || [];
+        ranges.push([start, end]);
+        danmakuItem.segmentCoverage.set(segmentIndex, ranges);
+        updateCoveredSegments(danmakuItem);
+      }
+    } else if (segmentIndex) {
+      danmakuItem.receivedSegments.add(segmentIndex);
+    }
     danmakuList.push(...checkFinish(pendingList));
   });
 
@@ -105,6 +190,7 @@
        }
 
        message DmSegConfig {
+         required int64 pageSize = 1;
          required int64 total = 2;
        }
        */
@@ -130,12 +216,14 @@
       var DmSegConfig = self.DmSegConfig = {};
 
       DmSegConfig.read = function (pbf, end) {
-        return pbf.readFields(DmSegConfig._readField, { total: 0 }, end);
+        return pbf.readFields(DmSegConfig._readField, { pageSize: 0, total: 0 }, end);
       };
       DmSegConfig._readField = function (tag, obj, pbf) {
-        if (tag === 2) obj.total = pbf.readVarint(true);
+        if (tag === 1) obj.pageSize = pbf.readVarint(true);
+        else if (tag === 2) obj.total = pbf.readVarint(true);
       };
       DmSegConfig.write = function (obj, pbf) {
+        if (obj.pageSize) pbf.writeVarintField(1, obj.pageSize);
         if (obj.total) pbf.writeVarintField(2, obj.total);
       };
       /* eslint-enable */
@@ -145,7 +233,7 @@
     /* global Pbf */
     const pbf = new Pbf(new Uint8Array(response));
     const data = types.DmWebViewReply.read(pbf);
-    const dmSegTotal = data.dmSeg.total;
+    const { pageSize, total: dmSegTotal } = data.dmSeg;
     const pendingList = pageContext.pendingList = pageContext.pendingList || [];
     const danmakuList = pageContext.danmakuList = pageContext.danmakuList || [];
     const id = `bilibili-pb-${cid}`;
@@ -153,15 +241,23 @@
     if (!danmakuItem) {
       danmakuItem = {
         id,
+        cid,
+        pageSize,
         total: dmSegTotal,
         content: [],
         danmakuIds: new Set(),
         receivedSegments: new Set(),
+        segmentCoverage: new Map(),
       };
       pendingList.push(danmakuItem);
     } else {
+      danmakuItem.pageSize = pageSize;
       danmakuItem.total = dmSegTotal;
     }
+    danmakuItem.segmentCoverage = danmakuItem.segmentCoverage || new Map();
+    const cidDuration = pageContext.metaInfo.cidDuration;
+    danmakuItem.durationMs = cidDuration && cidDuration.get(cid) || danmakuItem.durationMs;
+    updateCoveredSegments(danmakuItem);
     danmakuList.push(...checkFinish(pendingList));
   });
 

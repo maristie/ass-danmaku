@@ -10,6 +10,13 @@
   const context = new Map();
   /** @type {Map<string, Function>} */
   const exported = new Map();
+
+  const newPageContext = tabId => ({
+    tabId,
+    danmakuList: [],
+    metaInfo: {},
+    loading: false,
+  });
   /**
    * Export some function via message post to popup pages
    * @param {Function} f
@@ -22,11 +29,7 @@
 
   const pageContext = tabId => {
     if (!context.has(tabId)) {
-      context.set(tabId, {
-        tabId,
-        danmakuList: [],
-        metaInfo: {},
-      });
+      context.set(tabId, newPageContext(tabId));
     }
     const pageContext = context.get(tabId);
     return pageContext;
@@ -46,6 +49,9 @@
   const onRequest = function (match, callback, { includeRequestBody = false } = {}) {
     browser.webRequest.onBeforeRequest.addListener(details => {
       const { requestId, tabId, url } = details;
+      // Main-frame responses belong to the context created when navigation
+      // starts. Subresource responses retain the context that requested them.
+      const requestContext = details.type === 'main_frame' ? null : pageContext(tabId);
       const filter = browser.webRequest.filterResponseData(requestId);
       let capacity = 1 << 24; // 16MiB, this should be enough for our use case
       let size = 0;
@@ -71,9 +77,10 @@
         const response = buffer.slice(0, size);
         buffer = null;
         (async () => {
-          const context = pageContext(tabId);
-          await callback(response, pageContext(tabId), details);
-          if (context.danmakuList.length) browser.pageAction.show(tabId);
+          const responseContext = requestContext || pageContext(tabId);
+          await callback(response, responseContext, details);
+          if (context.get(tabId) !== responseContext) return;
+          if (responseContext.danmakuList.length) browser.pageAction.show(tabId);
         })();
       };
       return {};
@@ -98,9 +105,10 @@
     hidePageAction(tabId);
   };
 
-  const clearPageDanmaku = tabId => {
-    const context = pageContext(tabId);
-    context.danmakuList.length = 0;
+  const clearPageDanmaku = (tabId, loading = false) => {
+    const newContext = newPageContext(tabId);
+    newContext.loading = loading;
+    context.set(tabId, newContext);
     hidePageAction(tabId);
   };
 
@@ -108,7 +116,13 @@
     if (changeInfo.discarded) {
       revokePageAction(tabId);
     } else if (changeInfo.url) {
-      clearPageDanmaku(tabId);
+      clearPageDanmaku(tabId, true);
+    } else if (changeInfo.status === 'loading') {
+      const currentContext = context.get(tabId);
+      if (!currentContext || !currentContext.loading) clearPageDanmaku(tabId, true);
+    } else if (changeInfo.status === 'complete') {
+      const currentContext = context.get(tabId);
+      if (currentContext) currentContext.loading = false;
     }
   });
   browser.tabs.onRemoved.addListener(tabId => {
