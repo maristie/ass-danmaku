@@ -3,7 +3,7 @@
   /**
    * @typedef TabId
    * @typedef {{ id: string, meta: Object, content: Object }} DanmakuInfo
-   * @typedef {{ tabId: TabId, danmakuList: ?Array.<DanmakuInfo>, metaInfo: Object }} PageContext
+   * @typedef {{ tabId: TabId, danmakuList: ?Array.<DanmakuInfo>, metaInfo: Object, loading: boolean, navigationUrl: ?string }} PageContext
    */
 
   /** @type {Map<TabId, PageContext>} */
@@ -16,6 +16,7 @@
     danmakuList: [],
     metaInfo: {},
     loading: false,
+    navigationUrl: null,
   });
   /**
    * Export some function via message post to popup pages
@@ -105,22 +106,45 @@
     hidePageAction(tabId);
   };
 
-  const clearPageDanmaku = (tabId, loading = false) => {
+  const normalizeNavigationUrl = url => {
+    const normalizedUrl = new URL(url);
+    normalizedUrl.hash = '';
+    return normalizedUrl.href;
+  };
+
+  const clearPageDanmaku = (tabId, loading = false, navigationUrl = null) => {
     const newContext = newPageContext(tabId);
     newContext.loading = loading;
+    newContext.navigationUrl = navigationUrl && normalizeNavigationUrl(navigationUrl);
     context.set(tabId, newContext);
     hidePageAction(tabId);
   };
 
+  const hostPermissions = browser.runtime.getManifest().permissions.filter(permission => (
+    permission === '<all_urls>' || permission.includes('://')
+  ));
+  // Establish the destination context before its subresource requests begin.
+  // Duplicate URL/loading tab updates may arrive later for the same navigation.
+  browser.webRequest.onBeforeRequest.addListener(({ tabId, url }) => {
+    if (tabId >= 0) clearPageDanmaku(tabId, true, url);
+  }, { urls: hostPermissions, types: ['main_frame'] });
+
   browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (changeInfo.discarded) {
       revokePageAction(tabId);
-    } else if (changeInfo.url) {
-      clearPageDanmaku(tabId, true);
+      return;
+    }
+    if (changeInfo.url) {
+      const currentContext = context.get(tabId);
+      const navigationUrl = normalizeNavigationUrl(changeInfo.url);
+      if (!currentContext || !currentContext.loading || currentContext.navigationUrl !== navigationUrl) {
+        clearPageDanmaku(tabId, true, navigationUrl);
+      }
     } else if (changeInfo.status === 'loading') {
       const currentContext = context.get(tabId);
       if (!currentContext || !currentContext.loading) clearPageDanmaku(tabId, true);
-    } else if (changeInfo.status === 'complete') {
+    }
+    if (changeInfo.status === 'complete') {
       const currentContext = context.get(tabId);
       if (currentContext) currentContext.loading = false;
     }
