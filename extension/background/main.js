@@ -95,8 +95,10 @@
     }, { urls: match }, ['blocking']);
   };
 
-  const hidePageAction = tabId => {
+  const hidePageAction = (tabId, expectedContext = context.get(tabId)) => {
     browser.tabs.get(tabId).then(() => {
+      if (context.get(tabId) !== expectedContext) return;
+      if (expectedContext && expectedContext.danmakuList.length) return;
       browser.pageAction.hide(tabId);
     }, () => {});
   };
@@ -109,6 +111,7 @@
   const normalizeNavigationUrl = url => {
     const normalizedUrl = new URL(url);
     normalizedUrl.hash = '';
+    if (normalizedUrl.hostname === 'www.nicovideo.jp') normalizedUrl.searchParams.delete('from');
     return normalizedUrl.href;
   };
 
@@ -137,7 +140,9 @@
     if (changeInfo.url) {
       const currentContext = context.get(tabId);
       const navigationUrl = normalizeNavigationUrl(changeInfo.url);
-      if (!currentContext || !currentContext.loading || currentContext.navigationUrl !== navigationUrl) {
+      if (currentContext && currentContext.loading && !currentContext.navigationUrl) {
+        currentContext.navigationUrl = navigationUrl;
+      } else if (!currentContext || currentContext.navigationUrl !== navigationUrl) {
         clearPageDanmaku(tabId, true, navigationUrl);
       }
     } else if (changeInfo.status === 'loading') {

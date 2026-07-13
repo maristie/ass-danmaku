@@ -11,18 +11,23 @@ const mainSource = fs.readFileSync(
   'utf8',
 );
 
-const createHarness = () => {
+const createHarness = ({ deferTabLookup = false } = {}) => {
   const requestListeners = [];
   const responseFilters = new Map();
   const shownTabs = [];
+  const visibleTabs = new Set();
+  const pendingTabLookups = [];
   let onMessage;
   let onRemoved;
   let onUpdated;
 
   const browser = {
     pageAction: {
-      hide: () => {},
-      show: tabId => shownTabs.push(tabId),
+      hide: tabId => visibleTabs.delete(tabId),
+      show: tabId => {
+        shownTabs.push(tabId);
+        visibleTabs.add(tabId);
+      },
     },
     runtime: {
       getManifest: () => ({
@@ -36,7 +41,10 @@ const createHarness = () => {
       },
     },
     tabs: {
-      get: tabId => Promise.resolve({ id: tabId }),
+      get: tabId => {
+        if (!deferTabLookup) return Promise.resolve({ id: tabId });
+        return new Promise(resolve => pendingTabLookups.push(() => resolve({ id: tabId })));
+      },
       onRemoved: {
         addListener: listener => { onRemoved = listener; },
       },
@@ -98,8 +106,13 @@ const createHarness = () => {
     onRemoved: (...args) => onRemoved(...args),
     onUpdated: (...args) => onUpdated(...args),
     registerCommentRequest,
+    resolveTabLookups: async () => {
+      pendingTabLookups.splice(0).forEach(resolve => resolve());
+      await new Promise(resolve => setImmediate(resolve));
+    },
     shownTabs,
     startRequest,
+    visibleTabs,
   };
 };
 
@@ -114,7 +127,7 @@ test('duplicate tab updates do not replace a main-frame navigation context', asy
     requestId: 'navigation-1',
     tabId,
     type: 'main_frame',
-    url: 'https://www.nicovideo.jp/watch/so42562482',
+    url: 'https://www.nicovideo.jp/watch/so42562482?from=nanime_jujutsukaisen2_chvideo',
   });
   const responseFilter = harness.startRequest(commentRequest, 'comments-1', tabId);
 
@@ -122,6 +135,31 @@ test('duplicate tab updates do not replace a main-frame navigation context', asy
   // have already started. Neither update should invalidate their context.
   harness.onUpdated(tabId, { url: 'https://www.nicovideo.jp/watch/so42562482#player' });
   harness.onUpdated(tabId, { status: 'loading' });
+  await harness.finishRequest(responseFilter);
+
+  assert.deepEqual(harness.shownTabs, [tabId]);
+  const danmaku = await harness.onMessage({ method: 'listDanmaku', params: [tabId] });
+  assert.equal(danmaku.length, 1);
+  assert.equal(danmaku[0].id, 'episode-comments');
+});
+
+test('the first URL update is adopted when the main-frame tab ID was unavailable', async () => {
+  const harness = createHarness();
+  const tabId = 13;
+  const commentRequest = harness.registerCommentRequest(async (response, pageContext) => {
+    pageContext.danmakuList.push({ id: 'episode-comments' });
+  });
+
+  harness.mainFrameRequest({
+    requestId: 'navigation-1',
+    tabId: -1,
+    type: 'main_frame',
+    url: 'https://www.nicovideo.jp/watch/so42562482?from=nanime_jujutsukaisen2_chvideo',
+  });
+  harness.onUpdated(tabId, { status: 'loading' });
+  const responseFilter = harness.startRequest(commentRequest, 'comments-1', tabId);
+
+  harness.onUpdated(tabId, { url: 'https://www.nicovideo.jp/watch/so42562482' });
   await harness.finishRequest(responseFilter);
 
   assert.deepEqual(harness.shownTabs, [tabId]);
@@ -208,11 +246,11 @@ test('a URL update after loading completes remains a navigation fallback', async
   assert.equal(danmaku.length, 0);
 });
 
-test('a combined URL and complete update ends the loading cycle', async () => {
+test('a same-document URL update after complete preserves the context', async () => {
   const harness = createHarness();
   const tabId = 11;
   const commentRequest = harness.registerCommentRequest(async (response, pageContext) => {
-    pageContext.danmakuList.push({ id: 'stale-comments' });
+    pageContext.danmakuList.push({ id: 'episode-comments' });
   });
   const url = 'https://www.nicovideo.jp/watch/first';
 
@@ -225,10 +263,32 @@ test('a combined URL and complete update ends the loading cycle', async () => {
   harness.onUpdated(tabId, { url, status: 'complete' });
   const responseFilter = harness.startRequest(commentRequest, 'comments-1', tabId);
 
-  harness.onUpdated(tabId, { url });
+  harness.onUpdated(tabId, { url: `${url}#player` });
   await harness.finishRequest(responseFilter);
 
-  assert.deepEqual(harness.shownTabs, []);
+  assert.deepEqual(harness.shownTabs, [tabId]);
   const danmaku = await harness.onMessage({ method: 'listDanmaku', params: [tabId] });
-  assert.equal(danmaku.length, 0);
+  assert.equal(danmaku.length, 1);
+  assert.equal(danmaku[0].id, 'episode-comments');
+});
+
+test('a delayed hide cannot override a successful response', async () => {
+  const harness = createHarness({ deferTabLookup: true });
+  const tabId = 12;
+  const commentRequest = harness.registerCommentRequest(async (response, pageContext) => {
+    pageContext.danmakuList.push({ id: 'episode-comments' });
+  });
+
+  harness.mainFrameRequest({
+    requestId: 'navigation-1',
+    tabId,
+    type: 'main_frame',
+    url: 'https://www.nicovideo.jp/watch/so42562482',
+  });
+  const responseFilter = harness.startRequest(commentRequest, 'comments-1', tabId);
+  await harness.finishRequest(responseFilter);
+
+  assert.equal(harness.visibleTabs.has(tabId), true);
+  await harness.resolveTabLookups();
+  assert.equal(harness.visibleTabs.has(tabId), true);
 });
