@@ -2,6 +2,16 @@
 
   const getPageTitle = async tabId => (await browser.tabs.get(tabId)).title;
 
+  const getDanmakuName = function (pageContext, cid) {
+    return async () => {
+      const cidTitle = pageContext.metaInfo.cidTitle;
+      let title = cidTitle && cidTitle.get(`${cid}`);
+      if (typeof title === 'function') title = title();
+      title = await (title || getPageTitle(pageContext.tabId));
+      return 'B' + cid + (title ? ' - ' + title : '');
+    };
+  };
+
   const longestCoveredRange = function (ranges) {
     const sorted = ranges.slice().sort(([x], [y]) => x - y);
     let longest = 0;
@@ -75,12 +85,12 @@
     const cidTitle = pageContext.metaInfo.cidTitle = pageContext.metaInfo.cidTitle || new Map();
     data.forEach(({ cid, part }) => {
       const cidKey = `${cid}`;
-      cidTitle.set(cidKey, (async () => {
+      cidTitle.set(cidKey, async () => {
         const title = await getPageTitle(tabId);
         const aidTitle = title.replace(/_.*$/, '');
         const partTitle = part ? ' - ' + part : '';
         return aidTitle + partTitle;
-      })());
+      });
     });
     updateDurations(pageContext, data);
   });
@@ -105,10 +115,7 @@
   ], async function (response, pageContext, { url }) {
     const { cid, danmaku } = window.danmaku.parser.bilibili_xml(response);
     if (danmaku.length === 0) return;
-    const { tabId } = pageContext;
-    const cidTitle = pageContext.metaInfo.cidTitle;
-    const title = await (cidTitle && cidTitle.get(`${cid}`) || getPageTitle(tabId));
-    const name = 'B' + cid + (title ? ' - ' + title : '');
+    const name = getDanmakuName(pageContext, cid);
     const danmakuList = pageContext.danmakuList = pageContext.danmakuList || [];
     danmakuList.push({
       id: `bilibili-${cid}`,
@@ -125,10 +132,7 @@
     const cid = params.get('oid');
     const segmentIndex = params.get('segment_index');
     const { danmaku } = window.danmaku.parser.bilibili(response);
-    const { tabId } = pageContext;
-    const cidTitle = pageContext.metaInfo.cidTitle;
-    const title = await (cidTitle && cidTitle.get(`${cid}`) || getPageTitle(tabId));
-    const name = 'B' + cid + (title ? ' - ' + title : '');
+    const name = getDanmakuName(pageContext, cid);
     const pendingList = pageContext.pendingList = pageContext.pendingList || [];
     const danmakuList = pageContext.danmakuList = pageContext.danmakuList || [];
     const id = `bilibili-pb-${cid}`;

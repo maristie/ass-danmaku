@@ -50,6 +50,7 @@
   const onRequest = function (match, callback, { includeRequestBody = false } = {}) {
     browser.webRequest.onBeforeRequest.addListener(details => {
       const { requestId, tabId, url } = details;
+      if (details.method === 'OPTIONS') return {};
       // Main-frame responses belong to the context created when navigation
       // starts. Subresource responses retain the context that requested them.
       const requestContext = details.type === 'main_frame' ? null : pageContext(tabId);
@@ -111,7 +112,10 @@
   const normalizeNavigationUrl = url => {
     const normalizedUrl = new URL(url);
     normalizedUrl.hash = '';
-    if (normalizedUrl.hostname === 'www.nicovideo.jp') normalizedUrl.searchParams.delete('from');
+    if (
+      normalizedUrl.hostname === 'www.nicovideo.jp' &&
+      normalizedUrl.pathname.startsWith('/watch/')
+    ) normalizedUrl.search = '';
     return normalizedUrl.href;
   };
 
@@ -166,28 +170,44 @@
     return danmaku;
   };
 
+  // Title-based names stay lazy until the popup or download actually needs them.
+  const resolveMeta = async function (meta) {
+    if (!meta) return meta;
+    const resolvedMeta = Object.assign({}, meta);
+    resolvedMeta.name = await (
+      typeof meta.name === 'function' ? meta.name() : meta.name
+    );
+    return resolvedMeta;
+  };
+
   const random = () => `${Math.random()}`.slice(2);
   const randomStuff = `danmaku-${Date.now()}-${random()}`;
-  const listDanmaku = messageExport(function listDanmaku(tabId) {
+  const listDanmaku = messageExport(async function listDanmaku(tabId) {
     const pageContext = context.get(tabId);
     if (!pageContext) return [];
     const list = pageContext.danmakuList || [];
-    return list.map(({ id, meta }) => ({
+    const result = await Promise.all(list.map(async ({ id, meta }) => ({
       id,
-      meta,
-    }));
+      meta: await resolveMeta(meta),
+    })));
+    if (context.get(tabId) !== pageContext) return [];
+    return result;
   });
 
   const downloadDanmaku = messageExport(async function downloadDanmaku(tabId, danmakuId) {
+    const pageContext = context.get(tabId);
     const danmaku = getDanmakuDetail(tabId, danmakuId);
     const [options] = await Promise.all([
       window.options.get(),
     ]);
-    danmaku.layout = await window.danmaku.layout(danmaku.content, options);
-    const content = window.danmaku.ass(danmaku, options);
+    const layout = await window.danmaku.layout(danmaku.content, options);
+    const meta = await resolveMeta(danmaku.meta);
+    if (context.get(tabId) !== pageContext) return;
+    const resolvedDanmaku = Object.assign({}, danmaku, { layout, meta });
+    const content = window.danmaku.ass(resolvedDanmaku, options);
     const blob = window.download.blob(content);
     const url = URL.createObjectURL(blob);
-    const filename = window.download.filename(danmaku.meta.name, 'ass');
+    const filename = window.download.filename(meta.name, 'ass');
     await window.download.download(url, filename);
     URL.revokeObjectURL(url);
   });

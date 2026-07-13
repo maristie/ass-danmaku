@@ -8,8 +8,10 @@
     const { thread, danmaku } = window.danmaku.parser.niconico(response);
     if (danmaku.length === 0) return;
     const { tabId } = pageContext;
-    const title = await getPageTitle(tabId);
-    const name = 'N' + thread + (title ? ' - ' + title : '');
+    const name = async () => {
+      const title = await getPageTitle(tabId);
+      return 'N' + thread + (title ? ' - ' + title : '');
+    };
     const danmakuList = pageContext.danmakuList = pageContext.danmakuList || [];
     const id = `niconico-${thread}`;
     const danmakuItem = danmakuList.find(danmaku => danmaku.id === id);

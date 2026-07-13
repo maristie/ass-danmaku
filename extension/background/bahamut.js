@@ -19,8 +19,10 @@
     const { danmaku } = window.danmaku.parser.bahamut(response);
     if (danmaku.length === 0) return;
     const { tabId } = pageContext;
-    const title = await getPageTitle(tabId);
-    const name = 'BH' + sn + (title ? ' - ' + title : '');
+    const name = async () => {
+      const title = await getPageTitle(tabId);
+      return 'BH' + sn + (title ? ' - ' + title : '');
+    };
     const danmakuList = pageContext.danmakuList = pageContext.danmakuList || [];
     danmakuList.push({
       id: `bahamut-${sn}`,

@@ -83,14 +83,15 @@ const createHarness = ({ deferTabLookup = false } = {}) => {
     return requestListeners.at(-1).listener;
   };
 
-  const startRequest = (listener, requestId, tabId = 1) => {
-    listener({
+  const startRequest = (listener, requestId, tabId = 1, detailsOverrides = {}) => {
+    const details = Object.assign({
       requestId,
       tabId,
       type: 'xmlhttprequest',
       url: 'https://comments.example/threads',
-    });
-    return responseFilters.get(requestId);
+    }, detailsOverrides);
+    listener(details);
+    return responseFilters.get(details.requestId);
   };
 
   const finishRequest = async filter => {
@@ -115,6 +116,72 @@ const createHarness = ({ deferTabLookup = false } = {}) => {
     visibleTabs,
   };
 };
+
+const nicoSeriesSourceUrl = 'https://www.nicovideo.jp/watch/so46251775';
+const nicoSeriesTargetUrl = (
+  'https://www.nicovideo.jp/watch/so46304206?' +
+  'playlist=eyJ0eXBlIjoic2VyaWVzIiwiY29udGV4dCI6eyJzZXJpZXNJZCI6NTQ1NTA3fX0&' +
+  'transition_type=series&transition_id=545507&rf=nvpc&rp=watch&ra=series&rd=next'
+);
+const nicoSeriesCanonicalUrl = 'https://www.nicovideo.jp/watch/so46304206';
+
+test('comment preflight responses are not parsed', () => {
+  const harness = createHarness();
+  const commentRequest = harness.registerCommentRequest(() => {
+    assert.fail('preflight response callback should not run');
+  });
+
+  const responseFilter = harness.startRequest(
+    commentRequest,
+    'comments-preflight',
+    14,
+    { method: 'OPTIONS' },
+  );
+  assert.equal(responseFilter, undefined);
+});
+
+test('NicoVideo series navigation survives canonical URL cleanup', async () => {
+  const harness = createHarness();
+  const tabId = 14;
+  const commentRequest = harness.registerCommentRequest(async (response, pageContext, details) => {
+    pageContext.danmakuList.push({ id: details.requestId });
+  });
+
+  harness.mainFrameRequest({
+    requestId: 'source-navigation',
+    tabId,
+    type: 'main_frame',
+    url: nicoSeriesSourceUrl,
+  });
+  harness.onUpdated(tabId, { url: nicoSeriesSourceUrl, status: 'complete' });
+  const sourceFilter = harness.startRequest(
+    commentRequest,
+    'source-comments',
+    tabId,
+    { documentUrl: nicoSeriesSourceUrl, frameId: 0 },
+  );
+  await harness.finishRequest(sourceFilter);
+  assert.equal(harness.visibleTabs.has(tabId), true);
+
+  // NicoVideo commits the playlist URL before it replaces it with the
+  // canonical watch URL. The intervening request still belongs to this video.
+  harness.onUpdated(tabId, { url: nicoSeriesTargetUrl });
+  const destinationFilter = harness.startRequest(
+    commentRequest,
+    'destination-comments',
+    tabId,
+    // Firefox keeps reporting the source document URL for NicoVideo's SPA
+    // requests even after tabs.onUpdated has announced the destination URL.
+    { documentUrl: nicoSeriesSourceUrl, frameId: 0 },
+  );
+  harness.onUpdated(tabId, { url: nicoSeriesCanonicalUrl });
+  await harness.finishRequest(destinationFilter);
+
+  const danmaku = await harness.onMessage({ method: 'listDanmaku', params: [tabId] });
+  assert.equal(danmaku.length, 1);
+  assert.equal(danmaku[0].id, 'destination-comments');
+  assert.equal(harness.visibleTabs.has(tabId), true);
+});
 
 test('duplicate tab updates do not replace a main-frame navigation context', async () => {
   const harness = createHarness();
