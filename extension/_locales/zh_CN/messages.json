@@ -33,7 +33,8 @@
     "message": "固定弹幕时长"
   },
   "optionTolerantDelay": {
-    "message": "弹幕最大延迟"
+    "message": "弹幕优先延迟上限",
+    "description": "为避免弹幕重叠或丢失，必要时延迟可能超过此值。"
   },
   "optionTextOpacity": {
     "message": "不透明度"

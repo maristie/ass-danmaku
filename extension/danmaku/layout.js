@@ -8,7 +8,7 @@
         resolutionY: hc, // height of canvas
         bottomReserved: b, // reserved bottom height for subtitle
         rtlDuration: u, // duration appeared on screen
-        maxDelay: maxr, // max allowed delay
+        maxDelay: maxr, // preferred maximum delay
       } = options;
 
       // Initial canvas border
@@ -44,13 +44,12 @@
             tal = Math.max(tal, j.td);
           });
           const r = Math.max(tas - t0s, tal - t0l);
-          if (r > maxr) return;
           // save a candidate position
           suggestion.push({ p, r });
         });
         // sorted by its vertical position
         suggestion.sort((x, y) => x.p - y.p);
-        let mr = maxr;
+        let mr = Infinity;
         // the bottom and later choice should be ignored
         const filtered = suggestion.filter(i => {
           if (i.r >= mr) return false;
@@ -69,11 +68,11 @@
       };
       // give a score in range [0, 1) for some position
       const score = i => {
-        if (i.r > maxr) return -Infinity;
-        return 1 - Math.hypot(i.r / maxr, i.p / hc) * Math.SQRT1_2;
+        const delay = maxr ? i.r / maxr : 0;
+        return 1 - Math.hypot(delay, i.p / hc) * Math.SQRT1_2;
       };
       // add some danmaku
-      return line => {
+      return (line, allowLate = false) => {
         const {
           time: t0s, // time sent (start to appear if no delay)
           width: wv, // width of danmaku
@@ -84,10 +83,11 @@
         syn(t0s, t0l);
         const al = available(hv, t0s, t0l, b);
         if (!al.length) return null;
-        const scored = al.map(i => [score(i), i]);
-        const best = scored.reduce((x, y) => {
-          return x[0] > y[0] ? x : y;
-        })[1];
+        const onTime = al.filter(i => i.r <= maxr);
+        if (!onTime.length && !allowLate) return null;
+        const best = onTime.length
+          ? onTime.map(i => [score(i), i]).reduce((x, y) => x[0] > y[0] ? x : y)[1]
+          : al.reduce((x, y) => x.r < y.r || (x.r === y.r && x.p < y.p) ? x : y);
         const ts = t0s + best.r; // time start to enter
         const tf = wv / (wv + wc) * u + ts; // time complete enter
         const td = u + ts; // time complete leave
@@ -121,7 +121,6 @@
           tas = Math.max(tas, j.td);
         });
         const r = tas - t0s;
-        if (r > maxr) return null;
         return { r, p, m };
       };
       // layout for danmaku at top
@@ -151,21 +150,21 @@
       };
       // Score every position
       const score = (i, is_top) => {
-        if (i.r > maxr) return -Infinity;
         const f = p => is_top ? p : (hc - p);
-        return 1 - (i.r / maxr * (31 / 32) + f(i.p) / hc * (1 / 32));
+        const delay = maxr ? i.r / maxr : 0;
+        return 1 - (delay * (31 / 32) + f(i.p) / hc * (1 / 32));
       };
-      return function (line) {
+      return function (line, allowLate = false) {
         const { time: t0s, height: hv, bottom: b } = line;
         const is_top = line.mode === 'TOP';
         syn(t0s);
         const al = (is_top ? top : bottom)(hv, t0s, b);
         if (!al.length) return null;
-        const scored = al.map(function (i) { return [score(i, is_top), i]; });
-        const best = scored.reduce(function (x, y) {
-          return x[0] > y[0] ? x : y;
-        }, [-Infinity, null])[1];
-        if (!best) return null;
+        const onTime = al.filter(i => i.r <= maxr);
+        if (!onTime.length && !allowLate) return null;
+        const best = onTime.length
+          ? onTime.map(i => [score(i, is_top), i]).reduce((x, y) => x[0] > y[0] ? x : y)[1]
+          : al.reduce((x, y) => x.r < y.r || (x.r === y.r && x.p < y.p) ? x : y);
         use(best.p, best.m, best.r + t0s + u);
         return { top: best.p, time: best.r + t0s };
       };
@@ -181,7 +180,9 @@
         line.width = line.width || window.font.text(options.fontFamily, line.text, line.fontSize) || 1;
 
         if (line.mode === 'RTL') {
-          const pos = normal.reduce((pos, layer) => pos || layer(line), null);
+          // If every layer exceeds maxDelay, wait for a collision-free position
+          // in the first layer instead of dropping or overlapping the comment.
+          const pos = normal.reduce((pos, layer) => pos || layer(line), null) || normal[0](line, true);
           if (!pos) return null;
           const { top, time } = pos;
           line.layout = {
@@ -198,7 +199,8 @@
             },
           };
         } else if (['TOP', 'BOTTOM'].includes(line.mode)) {
-          const pos = fixed.reduce((pos, layer) => pos || layer(line), null);
+          // Fixed comments use the same lossless overflow behavior.
+          const pos = fixed.reduce((pos, layer) => pos || layer(line), null) || fixed[0](line, true);
           if (!pos) return null;
           const { top, time } = pos;
           line.layout = {
