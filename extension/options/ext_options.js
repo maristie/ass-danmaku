@@ -16,7 +16,7 @@ window.options = (function () {
    * @property {number} textSpace space between danmaku (px)
    * @property {number} rtlDuration duration of right to left moving danmaku appeared on screen (s)
    * @property {number} fixDuration duration of keep bottom / top danmaku appeared on screen (s)
-   * @property {number} maxDelay preferred maximum delay before lossless scheduling waits longer (s)
+   * @property {number} maxDelay // maxinum amount of allowed delay (s)
    * @property {number} textOpacity // opacity of text, in range of [0, 1]
    * @property {number} maxOverlap // maxinum layers of danmaku
    */

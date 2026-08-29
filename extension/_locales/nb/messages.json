@@ -41,7 +41,7 @@
   },
   "optionTolerantDelay": {
     "message": "Tolerant forsinkelse",
-    "description": "Danmaku may be delayed longer than this when necessary to avoid overlap or data loss."
+    "description": "Danmaku may be delayed for better layout. This option describe the maximum delay allowed."
   },
   "optionTextOpacity": {
     "message": "Dekkevne",
