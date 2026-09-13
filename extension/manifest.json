@@ -51,10 +51,13 @@
     "page": "options/options.html"
   },
 
-  "applications": {
+  "browser_specific_settings": {
     "gecko": {
-      "id": "{d9a7d273-90af-49c2-9379-887fe4848372}",
-      "strict_min_version": "57.0a1"
+      "id": "{a7eee37d-6c72-4d23-a656-bb992f2859ec}",
+      "strict_min_version": "58.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
     }
   }
 
