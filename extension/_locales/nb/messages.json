@@ -1,10 +1,10 @@
 {
   "extensionName": {
-    "message": "ASS Danmaku",
+    "message": "ASS Danmaku Continued",
     "description": "Name of the extension."
   },
   "extensionDescription": {
-    "message": "Last ned danmaku (videokommentarer) i ASS-format fra AcFun, bilibili, og Niconico. Ved visning av videoer på støttet side vil en danmaku-nedlastingsknapp komme til syne til høyre for adressefeltet.",
+    "message": "Last ned danmaku (videokommentarer) som ASS-undertekster fra videoer på AcFun, bilibili, Gamer.com.tw og Niconico.",
     "description": "Description of the extension."
   },
   "extensionButtonTitle": {
@@ -60,7 +60,7 @@
     "description": "The unit for measuring subtitle canvas and font size."
   },
   "assOriginal": {
-    "message": "Generert av ASS Danmaku basert på $1",
+    "message": "Generert av ASS Danmaku Continued basert på $1",
     "description": "The description inserted into ASS file header to describe the source of current file."
   },
   "downloadingTip": {

@@ -13,7 +13,7 @@
 
   window.onRequest([
     'https://api.gamer.com.tw/anime/v1/danmu.php?*',
-  ], async function (response, pageContext, { url, requestBody }) {
+  ], async function (response, pageContext, { url }) {
     const params = new URL(url).searchParams;
     const sn = params.get('videoSn');
     const { danmaku } = window.danmaku.parser.bahamut(response);
@@ -29,6 +29,6 @@
       meta: { name, url },
       content: danmaku,
     });
-  }, { includeRequestBody: true });
+  });
 
 }());
