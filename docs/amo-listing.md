@@ -32,6 +32,10 @@ Photos, Music & Videos; Download Management
 
 AMO category slugs: `photos-music-videos`, `download-management`.
 
+**AMO icon**
+
+The 128×128 listing icon published on AMO is [`amo-icon.png`](amo-icon.png), generated from [`amo-icon.svg`](amo-icon.svg). This listing artwork is separate from the extension icons in `extension/manifest.json`; AMO does not use those manifest icons as the listing icon.
+
 **Homepage / source**
 https://github.com/maristie/ass-danmaku
 
